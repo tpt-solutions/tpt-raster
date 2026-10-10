@@ -1,0 +1,9 @@
+/target
+**/*.rs.bk
+*.pdb
+.idea/
+.vscode/
+.claude/
+.DS_Store
+Thumbs.db
+*.profraw

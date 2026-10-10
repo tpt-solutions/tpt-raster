@@ -1,0 +1,128 @@
+Design Spec: tpt-raster (Layer 3)
+1. Mission & Scope
+Mission: To provide a unified, pure-Rust, SIMD-accelerated 2D rasterization and image compositing engine. It converts vector paths into anti-aliased pixels, performs alpha compositing with mathematically correct blend modes, and executes image processing filters. It is the pixel-level workhorse for the entire TPT ecosystem.
+Scope:
+In Scope: Path rasterization with analytic anti-aliasing, alpha compositing (Porter-Duff), blend modes, image sampling (bilinear/bicubic), convolution filters (blur, sharpen, edge detect), color space conversion at the pixel level, and surface management.
+Out of Scope: Vector path construction (handled by tpt-canvas), color space definition and ICC profiles (handled by tpt-color), image file decoding/encoding like PNG/JPEG (handled by tpt-kinetix), and 3D rasterization/depth buffering (handled by WebGPU in tpt-vertex).
+2. Core Constraints & Architecture
+Zero C-FFI: 100% Pure Rust. No linking to libvips, Skia, or stb_image.
+no_std + alloc: The core rasterization and filter loops must run in no_std environments (WASM, embedded controllers in tpt-l-riscv).
+SIMD-First Design: Every pixel-processing loop must be written to leverage tpt-simd. Scalar fallbacks are only for compilation on exotic targets; the hot paths must use portable SIMD (wide vectors, swizzles, saturating math).
+Deterministic: Given the same input paths, colors, and surface dimensions, the output pixel buffer must be byte-for-byte identical across x86_64, ARM64, and WASM. This requires strict floating-point ordering and avoiding non-deterministic SIMD lane ordering.
+The Dependency Map
+Vector Input: tpt-canvas (Provides the flattened paths and styling instructions).
+Color Math: tpt-color (Provides premultiplied alpha blending, color space conversions, and gamut mapping).
+SIMD: tpt-simd (The performance backbone for all pixel loops).
+Image Decoding: tpt-kinetix (Provides decoded pixel buffers that tpt-raster composites).
+3. Core Modules & API Design
+Module A: tpt_raster::surface (The Pixel Buffer)
+The fundamental data structure. A surface is a 2D grid of pixels with a known color space and pixel format.
+Pixel Formats: Rgba8 (standard UI), Rgba16F (HDR/intermediate), Rgba32F (scientific/chemistry), Gray8 (masks).
+Color Space Awareness: Every surface carries a ColorSpaceId (from tpt-color). Compositing two surfaces with different color spaces automatically triggers a conversion.
+Memory Layout: Supports both owned (Vec<u8>) and borrowed (&mut [u8]) backing stores, with configurable stride (row pitch) for GPU interop.
+Key Struct:
+pub struct Surface<P: PixelFormat> {
+    data: SurfaceBuffer<P>,
+    width: u32,
+    height: u32,
+    stride: u32,
+    color_space: ColorSpaceId,
+}
+
+impl<P: PixelFormat> Surface<P> {
+    pub fn get_pixel(&self, x: u32, y: u32) -> P;
+    pub fn set_pixel(&mut self, x: u32, y: u32, pixel: P);
+    pub fn as_slice(&self) -> &[P::Storage];
+    pub fn as_mut_slice(&mut self) -> &mut [P::Storage];
+}
+
+Module B: tpt_raster::rasterize (Path-to-Pixel Conversion)
+The engine that turns flattened vector paths into coverage masks.
+Analytic Anti-Aliasing: Instead of supersampling (which is slow), we use an analytic coverage calculation (similar to the approach in vello_cpu or raqote). For each pixel, we calculate the exact fractional area covered by the path.
+Scanline Engine: Walks the flattened path edges, builds an Active Edge Table (AET), and computes coverage per-scanline.
+Winding Rules: Supports both NonZero and EvenOdd fill rules, critical for complex CAD geometry from tpt-vertex.
+Key Function:
+
+pub fn rasterize_path(
+    surface: &mut Surface<Rgba8>,
+    path: &FlattenedPath,
+    transform: &Affine2,
+    fill_rule: FillRule,
+    paint: &Paint, // Solid, gradient, or pattern
+);
+
+Module C: tpt_raster::composite (Blending & Compositing)
+The engine that combines source and destination pixels. This is where tpt-color and tpt-simd meet.
+Porter-Duff Operators: SourceOver, SourceIn, DestinationOut, Xor, etc. All math is done in premultiplied alpha to prevent dark fringing.
+CSS/SVG Blend Modes: Multiply, Screen, Overlay, ColorDodge, SoftLight, etc. (15+ modes).
+SIMD Vectorization: The blend loop processes 8 or 16 pixels at a time using tpt-simd wide vectors, with saturating arithmetic to prevent overflow.
+Key Trait:
+
+pub trait BlendMode {
+    fn blend(src: [f32; 4], dst: [f32; 4]) -> [f32; 4];
+}
+
+pub fn composite_surface<P: PixelFormat>(
+    dst: &mut Surface<P>,
+    src: &Surface<P>,
+    opacity: f32,
+    blend: impl BlendMode,
+);
+
+Module D: tpt_raster::sample (Image Sampling)
+How pixels are read from a source image when it is transformed (scaled, rotated, skewed).
+Interpolation Filters: Nearest, Bilinear, Bicubic (Mitchell-Netravali), Lanczos3.
+Edge Handling: Clamp, Repeat, Mirror, Transparent.
+Mipmapping: For downscaling, uses precomputed mip levels to avoid aliasing artifacts (the "shimmering" effect when zooming out of a CAD model).
+SIMD-Accelerated: Bilinear and bicubic sampling are heavily vectorized, processing multiple pixels in parallel.
+Module E: tpt_raster::filter (Image Processing)
+A library of convolution and pixel-wise filters for tpt-kinetix (video processing) and tpt-doc (image effects).
+Separable Convolutions: Gaussian blur (horizontal + vertical passes for O(n) instead of O(n²) performance).
+Color Matrices: 5x4 matrix transforms for brightness, contrast, saturation, hue rotation, and sepia.
+Morphological Operations: Dilate, erode, open, close (useful for mask processing in tpt-doc).
+All filters are no_std and SIMD-accelerated.
+4. The Processing Pipeline
+How a UI element (e.g., a blurred, translucent card) is rendered to pixels:
+Surface Allocation: A temporary Surface<Rgba16F> is allocated for the card (HDR intermediate for correct blending).
+Background Fill: The surface is cleared with a semi-transparent white.
+Path Rasterization: The card's rounded-rect path (from tpt-canvas) is rasterized into the surface using analytic anti-aliasing. The coverage mask is multiplied by the fill paint.
+Filter Application: A Gaussian blur filter is applied to the surface. The separable convolution is SIMD-accelerated, processing 16 pixels per clock cycle.
+Compositing: The blurred card surface is composited onto the main screen surface using SourceOver blending. tpt-color ensures the alpha math is correct in the target color space (e.g., sRGB).
+Output: The final pixel buffer is handed to the windowing system or saved as a PNG via tpt-kinetix.
+5. Integration with the TPT Ecosystem
+tpt-canvas: The RasterBackend in tpt-canvas delegates all pixel-level work to tpt-raster. tpt-canvas handles the vector math; tpt-raster handles the pixels.
+tpt-doc (PDF): When generating PDF thumbnails, or when a PDF contains a rasterized image mask, tpt-raster renders it. The deterministic output ensures the thumbnail looks identical on all platforms.
+tpt-vertex (CAD): 2D CAD previews, selection highlights, and gizmo overlays are rasterized by tpt-raster when WebGPU is unavailable or for off-screen rendering.
+tpt-kinetix (Media): Video frame processing (color correction, blur, compositing overlays) uses tpt-raster::filter and tpt-raster::composite. The SIMD acceleration is critical for real-time video performance.
+tpt-pwa (Web UI): When running in WASM, tpt-raster renders the UI to a pixel buffer, which is then uploaded to a WebGPU texture for display.
+tpt-simd: This is the primary consumer of tpt-simd. The rasterization, blending, and filter loops are the proving ground for the SIMD abstractions.
+6. Testing & Quality Strategy
+Pixel-Perfect Golden Files: Using tpt-testkit::golden, we render complex scenes (overlapping translucent shapes, gradients, blurred images) and compare the raw pixel bytes against golden PNGs. Any change in the math fails the test.
+SIMD Equivalence Testing: We run the entire test suite twice: once with SIMD enabled, once with a scalar fallback. The outputs must be byte-for-byte identical. This catches non-deterministic SIMD lane ordering.
+Fuzzing the Rasterizer: Using tpt-testkit::fuzz, we feed millions of random, malformed paths (self-intersecting, zero-area, NaN coordinates) into rasterize_path to ensure it never panics or writes out-of-bounds.
+Performance Benchmarks: Using tpt-testkit::bench, we track pixels-per-second for blur, composite, and rasterize operations. CI fails PRs that regress performance by > 5%.
+7. Roadmap & Milestones
+Phase 1: Surfaces & Basic Compositing (Weeks 1-2)
+Implement Surface<P> with Rgba8 and Rgba32F formats.
+Implement basic SourceOver compositing with scalar math.
+Integrate tpt-color for premultiplied alpha.
+Phase 2: Path Rasterization (Weeks 3-5)
+Implement the scanline engine and Active Edge Table.
+Implement analytic anti-aliasing (coverage calculation).
+Support NonZero and EvenOdd fill rules.
+Milestone: Can rasterize complex paths with smooth edges.
+Phase 3: SIMD Acceleration (Weeks 6-8)
+Port all pixel loops (composite, blend, rasterize) to tpt-simd.
+Implement bilinear and bicubic image sampling with SIMD.
+Milestone: 10x performance improvement over scalar baseline.
+Phase 4: Filters & Advanced Blending (Weeks 9-11)
+Implement separable Gaussian blur, color matrices, and morphological ops.
+Implement all CSS blend modes (Multiply, Screen, Overlay, etc.).
+Milestone: Full feature parity with HTML5 Canvas 2D compositing.
+Phase 5: Integration & Polish (Week 12)
+Integrate with tpt-canvas::RasterBackend.
+Final fuzzing and golden-file testing.
+Publish v1.0.0.
+Architect's Note
+The most dangerous trap in rasterization is floating-point non-determinism. If you compute a * b + c in one order on x86 and a different order on ARM, you get slightly different pixels. This breaks your golden-file tests and makes cross-platform debugging a nightmare.
+To prevent this, tpt-raster enforces a strict rule: All intermediate color math is done in f32 with explicit rounding at the final step. We never use f64 for pixel math (it's slower and doesn't help with determinism on modern SIMD). We use tpt-simd's round_to_u8() function to convert from f32 to u8 with consistent rounding behavior across all platforms.
