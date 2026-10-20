@@ -144,42 +144,73 @@ fn clamp_index(i: usize, off: isize, n: usize) -> usize {
 pub fn convolve_plane_x8(src: &[f32], w: usize, h: usize, k: &[f32], horizontal: bool) -> Vec<f32> {
     let r = k.len() / 2;
     let mut out = vec![0.0f32; w * h];
+    if w == 0 {
+        return out;
+    }
     for y in 0..h {
-        let mut x = 0;
-        while x < w {
-            // Horizontal lanes read x + i + j - r. Taps stay inside the row when x >= r and the
-            // last lane's furthest tap, x + 7 + r, is below w. Vertical lanes are always in range.
-            let interior = !horizontal || (x >= r && x + 8 + r <= w);
-            if x + 8 <= w && interior {
-                let mut acc = [0.0f32; 8];
-                for (j, &kv) in k.iter().enumerate() {
-                    let start = if horizontal {
-                        y * w + x + j - r
-                    } else {
-                        clamp_index(y, j as isize - r as isize, h) * w + x
-                    };
-                    let v: &[f32; 8] = src[start..start + 8].try_into().expect("8 lanes");
-                    for (a, s) in acc.iter_mut().zip(v) {
-                        *a += kv * s;
-                    }
-                }
-                out[y * w + x..y * w + x + 8].copy_from_slice(&acc);
-                x += 8;
-                continue;
-            }
-            let mut acc = 0.0f32;
-            for (j, &kv) in k.iter().enumerate() {
-                let off = j as isize - r as isize;
-                let idx = if horizontal {
-                    y * w + clamp_index(x, off, w)
-                } else {
-                    clamp_index(y, off, h) * w + x
-                };
-                acc += kv * src[idx];
-            }
-            out[y * w + x] = acc;
-            x += 1;
+        let orow = &mut out[y * w..(y + 1) * w];
+        if horizontal {
+            horizontal_row(&src[y * w..(y + 1) * w], orow, k);
+        } else {
+            vertical_row(src, w, h, y, orow, k, r);
         }
     }
     out
+}
+
+/// Vertical pass for output row `y`. Eight output columns at a time stay in registers while the
+/// taps run, so each tap is one contiguous eight-lane read from its clamped row.
+#[inline]
+fn vertical_row(src: &[f32], w: usize, h: usize, y: usize, out: &mut [f32], k: &[f32], r: usize) {
+    let mut x = 0;
+    while x + 8 <= w {
+        let mut acc = [0.0f32; 8];
+        for (j, &kv) in k.iter().enumerate() {
+            let sy = clamp_index(y, j as isize - r as isize, h);
+            let s: &[f32; 8] = src[sy * w + x..sy * w + x + 8].try_into().expect("8 lanes");
+            for i in 0..8 {
+                acc[i] += kv * s[i];
+            }
+        }
+        out[x..x + 8].copy_from_slice(&acc);
+        x += 8;
+    }
+    while x < w {
+        let mut acc = 0.0f32;
+        for (j, &kv) in k.iter().enumerate() {
+            let sy = clamp_index(y, j as isize - r as isize, h);
+            acc += kv * src[sy * w + x];
+        }
+        out[x] = acc;
+        x += 1;
+    }
+}
+
+/// Horizontal pass over one row. Interior blocks of eight read contiguous lanes. Edge pixels use
+/// clamped reads.
+#[inline]
+fn horizontal_row(src: &[f32], out: &mut [f32], k: &[f32]) {
+    let (w, r) = (src.len(), k.len() / 2);
+    let mut x = 0;
+    while x < w {
+        if x >= r && x + 8 + r <= w && x + 8 <= w {
+            let mut acc = [0.0f32; 8];
+            for (j, &kv) in k.iter().enumerate() {
+                let s: &[f32; 8] = src[x + j - r..x + j - r + 8].try_into().expect("8 lanes");
+                for i in 0..8 {
+                    acc[i] += kv * s[i];
+                }
+            }
+            out[x..x + 8].copy_from_slice(&acc);
+            x += 8;
+            continue;
+        }
+        let mut acc = 0.0f32;
+        for (j, &kv) in k.iter().enumerate() {
+            let idx = clamp_index(x, j as isize - r as isize, w);
+            acc += kv * src[idx];
+        }
+        out[x] = acc;
+        x += 1;
+    }
 }

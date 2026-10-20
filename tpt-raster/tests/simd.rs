@@ -366,3 +366,106 @@ fn bench_gaussian_blur_simd_vs_scalar() {
         pixels / best.as_secs_f64() / 1e6
     );
 }
+
+#[test]
+#[ignore = "profiling: run in release with --nocapture"]
+fn profile_plane_pass() {
+    use tpt_raster::simd::convolve_plane_x8;
+    let mut rng = Rng::new(3);
+    let (w, h) = (1024usize, 1024usize);
+    let plane: Vec<f32> = (0..w * h)
+        .map(|_| rng.below(1001) as f32 / 1000.0)
+        .collect();
+    let k = tpt_raster::filter::gaussian_kernel(4.0);
+    let t_simd = best(3, || {
+        std::hint::black_box(convolve_plane_x8(&plane, w, h, &k, true));
+    });
+    let t_ref = best(3, || {
+        std::hint::black_box(reference_pass(&plane, w, h, &k, true));
+    });
+    let t_vert = best(3, || {
+        std::hint::black_box(convolve_plane_x8(&plane, w, h, &k, false));
+    });
+    println!(
+        "one plane, vertical simd: {:.1} ms",
+        t_vert.as_secs_f64() * 1e3
+    );
+    println!(
+        "one plane, horizontal, {} taps: simd {:.1} ms, scalar reference {:.1} ms",
+        k.len(),
+        t_simd.as_secs_f64() * 1e3,
+        t_ref.as_secs_f64() * 1e3
+    );
+}
+
+fn best(rounds: u32, mut f: impl FnMut()) -> std::time::Duration {
+    (0..rounds)
+        .map(|_| {
+            let t = std::time::Instant::now();
+            f();
+            t.elapsed()
+        })
+        .min()
+        .unwrap()
+}
+
+#[test]
+#[ignore = "profiling: run in release with --nocapture"]
+fn profile_blur_stages() {
+    use tpt_color::{premultiply, unpremultiply};
+    use tpt_raster::simd::convolve_plane_x8;
+    let mut rng = Rng::new(4);
+    let (w, h) = (1024u32, 1024u32);
+    let mut s: Surface<'static, Rgba32F> = Surface::new(w, h, ColorSpaceId::Srgb).unwrap();
+    for y in 0..h {
+        for x in 0..w {
+            let v = rng.below(1001) as f32 / 1000.0;
+            s.set_pixel(
+                x,
+                y,
+                Rgba32F {
+                    r: v,
+                    g: v,
+                    b: v,
+                    a: 1.0,
+                },
+            );
+        }
+    }
+    let k = tpt_raster::filter::gaussian_kernel(4.0);
+    let n = (w * h) as usize;
+    let t_load = best(3, || {
+        let mut buf: Vec<[f32; 4]> = Vec::with_capacity(n);
+        for y in 0..h {
+            for x in 0..w {
+                buf.push(premultiply(s.get_pixel(x, y).to_f32()));
+            }
+        }
+        std::hint::black_box(&buf);
+    });
+    let planes: Vec<Vec<f32>> = (0..4)
+        .map(|c| (0..n).map(|i| (i % 7) as f32 / 7.0 + c as f32).collect())
+        .collect();
+    let t_passes = best(3, || {
+        for p in &planes {
+            let a = convolve_plane_x8(p, w as usize, h as usize, &k, true);
+            std::hint::black_box(convolve_plane_x8(&a, w as usize, h as usize, &k, false));
+        }
+    });
+    let mut out_surface: Surface<'static, Rgba32F> =
+        Surface::new(w, h, ColorSpaceId::Srgb).unwrap();
+    let t_store = best(3, || {
+        for y in 0..h {
+            for x in 0..w {
+                let c = unpremultiply([0.5, 0.5, 0.5, 1.0]);
+                out_surface.set_pixel(x, y, Rgba32F::from_f32(c));
+            }
+        }
+    });
+    println!(
+        "stages 1024x1024 Rgba32F: load {:.1} ms, four planes x two passes {:.1} ms, store {:.1} ms",
+        t_load.as_secs_f64() * 1e3,
+        t_passes.as_secs_f64() * 1e3,
+        t_store.as_secs_f64() * 1e3
+    );
+}
