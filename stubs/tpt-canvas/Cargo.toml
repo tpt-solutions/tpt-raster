@@ -1,0 +1,10 @@
+[package]
+name = "tpt-canvas"
+description = "Local stub of tpt-canvas: the path and paint types that tpt-raster consumes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+libm.workspace = true

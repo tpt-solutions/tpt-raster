@@ -1,0 +1,10 @@
+[package]
+name = "tpt-color"
+description = "Local stub of tpt-color: the color-space API that tpt-raster needs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+libm.workspace = true

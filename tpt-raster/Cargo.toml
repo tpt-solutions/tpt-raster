@@ -1,0 +1,30 @@
+[package]
+name = "tpt-raster"
+description = "Pure-Rust, SIMD-accelerated 2D rasterization and compositing engine (no_std + alloc)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = []
+# Enables the std-only conveniences (none in the scalar baseline yet).
+std = []
+# Enables the tpt-simd backend. Off by default until Phase 3.
+simd = ["dep:tpt-simd-core", "dep:tpt-simd-rounding", "dep:tpt-simd-saturate"]
+# Forces scalar code paths even when `simd` is enabled (used by the equivalence harness).
+scalar-fallback = []
+
+[dependencies]
+libm.workspace = true
+tpt-color.workspace = true
+tpt-canvas.workspace = true
+tpt-simd-core = { workspace = true, optional = true }
+tpt-simd-rounding = { workspace = true, optional = true }
+tpt-simd-saturate = { workspace = true, optional = true }
+
+[dev-dependencies]
+tpt-testkit.workspace = true
+
+[lints]
+workspace = true

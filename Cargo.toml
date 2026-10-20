@@ -1,0 +1,34 @@
+[workspace]
+resolver = "3"
+members = [
+    "tpt-raster",
+    "stubs/tpt-color",
+    "stubs/tpt-canvas",
+    "stubs/tpt-testkit",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[workspace.dependencies]
+# Local stubs for crates that are not yet available (see TODO.md, Decisions).
+tpt-color = { path = "stubs/tpt-color" }
+tpt-canvas = { path = "stubs/tpt-canvas" }
+tpt-testkit = { path = "stubs/tpt-testkit" }
+
+# Real dependency. Pinned to the rev inspected in TODO.md (no tags exist upstream).
+tpt-simd-core = { git = "https://github.com/tpt-solutions/tpt-simd", rev = "be4f4c4e9dd8fa60460dcf6aae2afadab5ccd077" }
+tpt-simd-rounding = { git = "https://github.com/tpt-solutions/tpt-simd", rev = "be4f4c4e9dd8fa60460dcf6aae2afadab5ccd077" }
+tpt-simd-saturate = { git = "https://github.com/tpt-solutions/tpt-simd", rev = "be4f4c4e9dd8fa60460dcf6aae2afadab5ccd077" }
+
+libm = { version = "0.2", default-features = false }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
