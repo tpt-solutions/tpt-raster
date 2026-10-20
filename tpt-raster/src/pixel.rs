@@ -13,6 +13,10 @@ pub trait PixelFormat: Copy + Default + core::fmt::Debug {
     /// Bytes occupied by one pixel in storage.
     const BYTES_PER_PIXEL: usize = core::mem::size_of::<Self::Storage>();
 
+    /// True when `load_lanes` and `store_lanes` have a real lane path. The SIMD composite is
+    /// only dispatched to formats that set this, because elsewhere it is slower than scalar.
+    const HAS_LANE_PATH: bool = false;
+
     /// Packs the pixel into its storage element.
     fn to_storage(self) -> Self::Storage;
     /// Unpacks a storage element into a pixel.
@@ -22,6 +26,27 @@ pub trait PixelFormat: Copy + Default + core::fmt::Debug {
     fn to_f32(self) -> [f32; 4];
     /// Narrows from the canonical `f32` RGBA form, rounding as the format requires.
     fn from_f32(c: [f32; 4]) -> Self;
+    /// Widens eight consecutive pixels starting at `x` into channel lanes. The default goes
+    /// through `to_f32`. Formats with a faster lane path override it.
+    #[cfg(feature = "simd")]
+    fn load_lanes(storage: &[Self::Storage], x: usize, out: &mut [[f32; 8]; 4]) {
+        for i in 0..8 {
+            let c = Self::from_storage(storage[x + i]).to_f32();
+            for (lane, v) in out.iter_mut().zip(c) {
+                lane[i] = v;
+            }
+        }
+    }
+
+    /// Narrows eight channel lanes back into eight pixels starting at `x`. The default goes
+    /// through `from_f32`.
+    #[cfg(feature = "simd")]
+    fn store_lanes(out: &[[f32; 8]; 4], storage: &mut [Self::Storage], x: usize) {
+        for i in 0..8 {
+            storage[x + i] =
+                Self::from_f32([out[0][i], out[1][i], out[2][i], out[3][i]]).to_storage();
+        }
+    }
 }
 
 /// 8-bit-per-channel RGBA. The standard UI format.
@@ -39,6 +64,7 @@ pub struct Rgba8 {
 
 impl PixelFormat for Rgba8 {
     type Storage = [u8; 4];
+    const HAS_LANE_PATH: bool = true;
 
     #[inline]
     fn to_storage(self) -> [u8; 4] {
@@ -67,6 +93,25 @@ impl PixelFormat for Rgba8 {
             g: unit_to_u8(c[1]),
             b: unit_to_u8(c[2]),
             a: unit_to_u8(c[3]),
+        }
+    }
+
+    /// Lane path: each byte becomes `byte as f32 / 255`, the same as `to_f32`.
+    #[cfg(feature = "simd")]
+    fn load_lanes(storage: &[[u8; 4]], x: usize, out: &mut [[f32; 8]; 4]) {
+        for (ch, lane) in out.iter_mut().enumerate() {
+            for i in 0..8 {
+                lane[i] = storage[x + i][ch] as f32 / 255.0;
+            }
+        }
+    }
+
+    /// Lane path: rounds all eight lanes at once with `unit_to_u8_x8`, the same as `from_f32`.
+    #[cfg(feature = "simd")]
+    fn store_lanes(out: &[[f32; 8]; 4], storage: &mut [[u8; 4]], x: usize) {
+        let r = [0, 1, 2, 3].map(|ch| crate::simd::unit_to_u8_x8(out[ch]));
+        for i in 0..8 {
+            storage[x + i] = [r[0][i], r[1][i], r[2][i], r[3][i]];
         }
     }
 }

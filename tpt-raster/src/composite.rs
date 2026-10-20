@@ -65,7 +65,7 @@ where
     let (src_cs, dst_cs) = (src.color_space(), dst.color_space());
 
     #[cfg(all(feature = "simd", not(feature = "scalar-fallback")))]
-    if B::IS_SOURCE_OVER && src_cs == dst_cs {
+    if B::IS_SOURCE_OVER && src_cs == dst_cs && D::HAS_LANE_PATH {
         crate::simd::composite_source_over(dst, src, opacity);
         return Ok(());
     }

@@ -76,8 +76,9 @@ pub fn round_to_u8_scalar(v: [f32; 8]) -> [u8; 8] {
 
 /// SIMD `composite_surface` for premultiplied SourceOver with matching colour spaces.
 ///
-/// Eight consecutive pixels per row go through the lanes. Pixels that do not fill a group run
-/// the same arithmetic one at a time. `opacity` must already be clamped. Dimensions must match.
+/// Works row by row. Eight consecutive pixels per row go through the lanes. Each format loads
+/// and stores its lanes through `PixelFormat::load_lanes` and `store_lanes`. The tail runs the
+/// same arithmetic one pixel at a time. `opacity` must already be clamped. Dimensions must match.
 pub fn composite_source_over<D: PixelFormat, S: PixelFormat>(
     dst: &mut Surface<'_, D>,
     src: &Surface<'_, S>,
@@ -85,36 +86,43 @@ pub fn composite_source_over<D: PixelFormat, S: PixelFormat>(
 ) {
     use crate::composite::{BlendMode, SourceOver};
 
-    let (w, h) = (dst.width() as usize, dst.height() as usize);
-    for y in 0..h {
+    let w = dst.width() as usize;
+    for y in 0..dst.height() {
+        let srow = src.row(y);
+        let drow = dst.row_mut(y);
         let mut x = 0;
         while x + 8 <= w {
             let mut s = [[0.0f32; 8]; 4];
             let mut d = [[0.0f32; 8]; 4];
-            for i in 0..8 {
-                let (px, py) = ((x + i) as u32, y as u32);
-                let sp = premultiply(src.get_pixel(px, py).to_f32()).map(|c| c * opacity);
-                let dp = premultiply(dst.get_pixel(px, py).to_f32());
-                for (ch, (sv, dv)) in s.iter_mut().zip(d.iter_mut()).enumerate() {
-                    sv[i] = sp[ch];
-                    dv[i] = dp[ch];
-                }
-            }
+            S::load_lanes(srow, x, &mut s);
+            D::load_lanes(drow, x, &mut d);
+            let s = scale_x8(premultiply_x8(s), opacity);
+            let d = premultiply_x8(d);
             let out = unpremultiply_x8(source_over_x8(s, d));
-            let pixels: [[f32; 4]; 8] =
-                core::array::from_fn(|i| [out[0][i], out[1][i], out[2][i], out[3][i]]);
-            for (i, c) in pixels.into_iter().enumerate() {
-                dst.set_pixel((x + i) as u32, y as u32, D::from_f32(c));
-            }
+            D::store_lanes(&out, drow, x);
             x += 8;
         }
         while x < w {
-            let (px, py) = (x as u32, y as u32);
-            let s = premultiply(src.get_pixel(px, py).to_f32()).map(|c| c * opacity);
-            let d = premultiply(dst.get_pixel(px, py).to_f32());
+            let s = premultiply(S::from_storage(srow[x]).to_f32()).map(|c| c * opacity);
+            let d = premultiply(D::from_storage(drow[x]).to_f32());
             let out = unpremultiply(SourceOver::blend(s, d));
-            dst.set_pixel(px, py, D::from_f32(out));
+            drow[x] = D::from_f32(out).to_storage();
             x += 1;
         }
     }
+}
+
+/// Premultiplies eight lanes. Per lane this is `[c0*a, c1*a, c2*a, a]`, as in the scalar code.
+#[inline]
+pub fn premultiply_x8(c: [[f32; 8]; 4]) -> [[f32; 8]; 4] {
+    let a = c[3];
+    core::array::from_fn(|ch| {
+        core::array::from_fn(|i| if ch == 3 { a[i] } else { c[ch][i] * a[i] })
+    })
+}
+
+/// Multiplies all four channels of eight lanes by `k`.
+#[inline]
+pub fn scale_x8(c: [[f32; 8]; 4], k: f32) -> [[f32; 8]; 4] {
+    c.map(|ch| ch.map(|v| v * k))
 }

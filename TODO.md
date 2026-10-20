@@ -84,7 +84,7 @@ Source of truth: [spec.txt](spec.txt)
 
 ## Phase 3 — SIMD Acceleration (Weeks 6–8)
 - [x] Study/confirm `tpt-simd` API; add thin abstraction layer if needed — `src/simd.rs` is the only layer. It uses `Simd<f32, 8>` with `max`/`min`/`zip_with`/`map`, and `round_to_nearest_even_i32` plus a clamp for rounding. tpt-simd has no operator overloads.
-- [~] SIMD `SourceOver` (8 px per iteration) with scalar tail — `simd::composite_source_over`, dispatched from `composite_surface` under the `simd` feature. Bit-exact with the scalar reference, but **0.5× the scalar speed**: lanes are filled with per-pixel `get_pixel`, so the arithmetic is not the bottleneck. Needs packed row loads before it can help.
+- [~] SIMD `SourceOver` (8 px per iteration) with scalar tail — `simd::composite_source_over`. Row-based, with lane load/store hooks on `PixelFormat`. Rgba8 has a lane path (`byte as f32 / 255`, lane rounding via `unit_to_u8_x8`), so only Rgba8 destinations dispatch to it (`HAS_LANE_PATH`). Bit-exact with the scalar reference. Measured against the crate's own scalar composite: Rgba8 about 1.1–1.4×, Rgba32F slower (0.8–0.9×), so Rgba32F stays scalar. The 10× milestone is not met.
 - [ ] SIMD coverage accumulation & mask-apply in rasterizer
 - [~] SIMD Rgba8 <-> f32 pack/unpack, `round_to_u8` — `round_to_u8_x8` and `unit_to_u8_x8` are done and match the scalar function on special values and 200k random bit patterns. Pack/unpack is not started.
 - [x] Scalar fallback behind feature flag — `scalar-fallback` forces the scalar composite. Tested both ways: 109 tests with `simd`, 103 without.
@@ -98,7 +98,7 @@ Source of truth: [spec.txt](spec.txt)
 - [x] Transformed image draw (scale/rotate/skew via `Affine2`) — `draw_image`, inverse mapping per destination pixel; returns `SingularTransform` for non-invertible matrices
 ### Verification
 - [~] SIMD-vs-scalar byte-for-byte equivalence harness (whole test suite runs twice) — `tests/simd.rs` compares rounding and composite bit-for-bit against a scalar reference, over random and special inputs. The whole suite also runs with `simd` on (109 tests) and forced scalar (103 tests). It is not yet a byte-diff of every filter and sampler output.
-- [~] Criterion-style benchmarks baseline — ignored test `bench_simd_composite_against_scalar` (release, `--nocapture`). Measured 1024×1024 composite: SIMD dispatch 117 Mpx/s, scalar reference 230 Mpx/s, ratio 0.51×. No Criterion, no filters or blends yet.
+- [~] Criterion-style benchmarks baseline — ignored test `bench_simd_composite_against_scalar` (release, `--nocapture`, best of 5). Noisy: the same run varies by about 20%. No Criterion, and no filter or blend benchmarks yet.
 - [ ] **Milestone:** ≥10× over scalar baseline
 
 ## Phase 4 — Filters & Advanced Blending (Weeks 9–11)

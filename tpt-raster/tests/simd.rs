@@ -142,14 +142,31 @@ fn check_composite<D: PixelFormat + 'static, S: PixelFormat + 'static>(
         let src = random_surface(&mut rng, w, h, &make_s);
         let opacity = [1.0, 0.5, 0.0, 2.0, f32::NAN, 0.333][case % 6];
 
-        let mut fast = dst.clone_pixels();
         let mut slow = dst.clone_pixels();
-        composite_surface(&mut fast, &src, opacity, SourceOver).unwrap();
         reference_composite(&mut slow, &src, opacity);
+        let expected = storage_bits(&slow);
+
+        // The SIMD kernel, called directly so every format is covered, whatever dispatch picks.
+        let clamped = if opacity.is_nan() {
+            0.0
+        } else {
+            opacity.clamp(0.0, 1.0)
+        };
+        let mut kernel = dst.clone_pixels();
+        tpt_raster::simd::composite_source_over(&mut kernel, &src, clamped);
         assert_eq!(
-            storage_bits(&fast),
-            storage_bits(&slow),
-            "case {case} w={w} h={h} opacity={opacity}"
+            storage_bits(&kernel),
+            expected,
+            "kernel: case {case} w={w} h={h} opacity={opacity}"
+        );
+
+        // The public entry point, which dispatches to the kernel only for lane-path formats.
+        let mut dispatched = dst.clone_pixels();
+        composite_surface(&mut dispatched, &src, opacity, SourceOver).unwrap();
+        assert_eq!(
+            storage_bits(&dispatched),
+            expected,
+            "dispatch: case {case} w={w} h={h} opacity={opacity}"
         );
     }
 }
@@ -207,30 +224,55 @@ fn simd_composite_matches_reference_mixed_formats() {
     );
 }
 
+/// Best of `rounds` timings, to reduce noise from other load on the machine.
+fn best_of(rounds: u32, iters: u32, mut f: impl FnMut()) -> std::time::Duration {
+    (0..rounds)
+        .map(|_| tpt_testkit::bench::time_iters(iters, &mut f))
+        .min()
+        .unwrap()
+}
+
 /// Timing comparison. Run with:
 /// `cargo test -p tpt-raster --release --features simd --test simd -- --ignored --nocapture`
 #[test]
 #[ignore = "benchmark: run in release with --nocapture"]
 fn bench_simd_composite_against_scalar() {
-    use tpt_testkit::bench::time_iters;
     let mut rng = Rng::new(99);
+    let (rounds, iters) = (5, 10);
+    let mpix = 1024.0 * 1024.0 * iters as f64 / 1.0e6;
+
+    // Rgba32F: no lane override, so the default per-pixel load and store.
     let dst = random_surface(&mut rng, 1024, 1024, |r, g, b, a| Rgba32F { r, g, b, a });
     let src = random_surface(&mut rng, 1024, 1024, |r, g, b, a| Rgba32F { r, g, b, a });
-    let iters = 10;
+    report("Rgba32F", mpix, &dst, &src, rounds, iters);
 
+    // Rgba8: has the lane override, so load and store run in lanes.
+    let dst8 = random_surface(&mut rng, 1024, 1024, |r, g, b, a| {
+        Rgba8::from_f32([r, g, b, a])
+    });
+    let src8 = random_surface(&mut rng, 1024, 1024, |r, g, b, a| {
+        Rgba8::from_f32([r, g, b, a])
+    });
+    report("Rgba8", mpix, &dst8, &src8, rounds, iters);
+}
+
+fn report<P: PixelFormat + 'static>(
+    name: &str,
+    mpix: f64,
+    dst: &Surface<'_, P>,
+    src: &Surface<'_, P>,
+    rounds: u32,
+    iters: u32,
+) {
     let mut a = dst.clone_pixels();
-    let simd = time_iters(iters, || {
-        composite_surface(&mut a, &src, 1.0, SourceOver).unwrap()
+    let simd = best_of(rounds, iters, || {
+        composite_surface(&mut a, src, 1.0, SourceOver).unwrap()
     });
     let mut b = dst.clone_pixels();
-    let scalar = time_iters(iters, || reference_composite(&mut b, &src, 1.0));
-
-    let mpix = (1024.0 * 1024.0 * iters as f64) / 1.0e6;
+    let scalar = best_of(rounds, iters, || reference_composite(&mut b, src, 1.0));
     println!(
-        "composite 1024x1024 x{iters}: dispatch {:.1} ms ({:.1} Mpx/s), scalar reference {:.1} ms ({:.1} Mpx/s), ratio {:.2}x",
-        simd.as_secs_f64() * 1e3,
+        "{name} 1024x1024 x{iters} (best of {rounds}): dispatch {:.1} Mpx/s, scalar reference {:.1} Mpx/s, ratio {:.2}x",
         mpix / simd.as_secs_f64(),
-        scalar.as_secs_f64() * 1e3,
         mpix / scalar.as_secs_f64(),
         scalar.as_secs_f64() / simd.as_secs_f64(),
     );
