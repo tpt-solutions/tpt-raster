@@ -144,6 +144,28 @@ fn convolve_3x3(src: &[Px], w: usize, h: usize, k: &[[f32; 3]; 3]) -> Vec<Px> {
     out
 }
 
+/// Two separable passes over the interleaved buffer, scalar.
+#[cfg(not(all(feature = "simd", not(feature = "scalar-fallback"))))]
+fn blur_buffer(buf: &[Px], w: usize, h: usize, k: &[f32]) -> Vec<Px> {
+    let buf = convolve_1d(buf, w, h, k, true);
+    convolve_1d(&buf, w, h, k, false)
+}
+
+/// The same two passes on channel planes, eight pixels per lane. Bit-identical to the scalar
+/// version, because each channel's taps are summed in the same order.
+#[cfg(all(feature = "simd", not(feature = "scalar-fallback")))]
+fn blur_buffer(buf: &[Px], w: usize, h: usize, k: &[f32]) -> Vec<Px> {
+    use crate::simd::convolve_plane_x8;
+    let mut planes: [Vec<f32>; 4] = core::array::from_fn(|c| buf.iter().map(|p| p[c]).collect());
+    for plane in &mut planes {
+        let horizontal = convolve_plane_x8(plane, w, h, k, true);
+        *plane = convolve_plane_x8(&horizontal, w, h, k, false);
+    }
+    (0..w * h)
+        .map(|i| [planes[0][i], planes[1][i], planes[2][i], planes[3][i]])
+        .collect()
+}
+
 /// Gaussian blur with standard deviation `sigma`, in premultiplied space.
 ///
 /// Sigma is clamped to [`MAX_SIGMA`]. Sigma below [`MIN_SIGMA`] is a no-op.
@@ -154,8 +176,7 @@ pub fn gaussian_blur<P: PixelFormat>(s: &mut Surface<'_, P>, sigma: f32) {
         return;
     }
     let buf = load(s, true);
-    let buf = convolve_1d(&buf, w, h, &k, true);
-    let buf = convolve_1d(&buf, w, h, &k, false);
+    let buf = blur_buffer(&buf, w, h, &k);
     store(s, &buf, true);
 }
 

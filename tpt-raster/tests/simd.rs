@@ -277,3 +277,92 @@ fn report<P: PixelFormat + 'static>(
         scalar.as_secs_f64() / simd.as_secs_f64(),
     );
 }
+
+/// Scalar reference for one separable pass, written out independently of the SIMD kernel.
+fn reference_pass(src: &[f32], w: usize, h: usize, k: &[f32], horizontal: bool) -> Vec<f32> {
+    let r = (k.len() / 2) as isize;
+    let clamp = |i: isize, n: usize| i.clamp(0, n as isize - 1) as usize;
+    let mut out = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let mut acc = 0.0f32;
+            for (j, &kv) in k.iter().enumerate() {
+                let off = j as isize - r;
+                let idx = if horizontal {
+                    y * w + clamp(x as isize + off, w)
+                } else {
+                    clamp(y as isize + off, h) * w + x
+                };
+                acc += kv * src[idx];
+            }
+            out[y * w + x] = acc;
+        }
+    }
+    out
+}
+
+#[test]
+fn convolve_plane_simd_matches_reference_bit_for_bit() {
+    use tpt_raster::simd::convolve_plane_x8;
+    let mut rng = Rng::new(555);
+    for case in 0..300 {
+        let w = 1 + rng.below(40) as usize;
+        let h = 1 + rng.below(12) as usize;
+        let taps = [1usize, 3, 5, 9, 15][rng.below(5) as usize];
+        let k: Vec<f32> = (0..taps)
+            .map(|_| rng.below(2001) as f32 / 1000.0 - 0.5)
+            .collect();
+        let src: Vec<f32> = (0..w * h)
+            .map(|_| rng.below(10001) as f32 / 1000.0 - 5.0)
+            .collect();
+        for horizontal in [true, false] {
+            let fast = convolve_plane_x8(&src, w, h, &k, horizontal);
+            let slow = reference_pass(&src, w, h, &k, horizontal);
+            let (fb, sb): (Vec<u32>, Vec<u32>) = (
+                fast.iter().map(|v| v.to_bits()).collect(),
+                slow.iter().map(|v| v.to_bits()).collect(),
+            );
+            assert_eq!(
+                fb, sb,
+                "case {case} w={w} h={h} taps={taps} horizontal={horizontal}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "benchmark: run in release with --nocapture"]
+fn bench_gaussian_blur_simd_vs_scalar() {
+    use tpt_raster::filter::gaussian_blur;
+    let mut rng = Rng::new(7);
+    let mut s: Surface<'static, Rgba32F> = Surface::new(1024, 1024, ColorSpaceId::Srgb).unwrap();
+    for y in 0..1024 {
+        for x in 0..1024 {
+            let v = rng.below(1001) as f32 / 1000.0;
+            s.set_pixel(
+                x,
+                y,
+                Rgba32F {
+                    r: v,
+                    g: v * 0.5,
+                    b: 0.25,
+                    a: 1.0,
+                },
+            );
+        }
+    }
+    let pixels = 1024.0 * 1024.0;
+    let best = (0..3)
+        .map(|_| {
+            let mut t = s.clone_pixels();
+            tpt_testkit::bench::time_iters(1, || gaussian_blur(&mut t, 4.0))
+        })
+        .min()
+        .unwrap();
+    // Built with `--features simd` the blur takes the planar SIMD path. Without it, the scalar one.
+    println!(
+        "gaussian blur sigma 4, 1024x1024 Rgba32F: {:.1} ms ({:.1} Mpx/s)",
+        best.as_secs_f64() * 1e3,
+        pixels / best.as_secs_f64() / 1e6
+    );
+}

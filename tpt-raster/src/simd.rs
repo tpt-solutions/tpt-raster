@@ -7,6 +7,8 @@
 //! Lanes are filled with scalar loads (`get_pixel`), so the speed-up is only in the arithmetic
 //! and rounding. Packed loads are a later optimisation.
 
+use alloc::{vec, vec::Vec};
+
 use tpt_simd_core::Simd;
 
 use tpt_color::{premultiply, unpremultiply};
@@ -125,4 +127,59 @@ pub fn premultiply_x8(c: [[f32; 8]; 4]) -> [[f32; 8]; 4] {
 #[inline]
 pub fn scale_x8(c: [[f32; 8]; 4], k: f32) -> [[f32; 8]; 4] {
     c.map(|ch| ch.map(|v| v * k))
+}
+
+/// Index `i + off` clamped to `0..n`. Requires `n >= 1`.
+#[inline]
+fn clamp_index(i: usize, off: isize, n: usize) -> usize {
+    (i as isize + off).clamp(0, n as isize - 1) as usize
+}
+
+/// One separable pass over a single channel plane, eight output pixels per lane group.
+///
+/// Each output is the sum of `k[j] * src[...]` over the taps, accumulated from zero in tap
+/// order. That is the same sequence of f32 operations as the scalar `convolve_1d`, so the
+/// results are bit-identical. Interior blocks read contiguous lanes. Edge blocks and the tail
+/// fall back to per-pixel clamped reads.
+pub fn convolve_plane_x8(src: &[f32], w: usize, h: usize, k: &[f32], horizontal: bool) -> Vec<f32> {
+    let r = k.len() / 2;
+    let mut out = vec![0.0f32; w * h];
+    for y in 0..h {
+        let mut x = 0;
+        while x < w {
+            // Horizontal lanes read x + i + j - r. Taps stay inside the row when x >= r and the
+            // last lane's furthest tap, x + 7 + r, is below w. Vertical lanes are always in range.
+            let interior = !horizontal || (x >= r && x + 8 + r <= w);
+            if x + 8 <= w && interior {
+                let mut acc = [0.0f32; 8];
+                for (j, &kv) in k.iter().enumerate() {
+                    let start = if horizontal {
+                        y * w + x + j - r
+                    } else {
+                        clamp_index(y, j as isize - r as isize, h) * w + x
+                    };
+                    let v: &[f32; 8] = src[start..start + 8].try_into().expect("8 lanes");
+                    for (a, s) in acc.iter_mut().zip(v) {
+                        *a += kv * s;
+                    }
+                }
+                out[y * w + x..y * w + x + 8].copy_from_slice(&acc);
+                x += 8;
+                continue;
+            }
+            let mut acc = 0.0f32;
+            for (j, &kv) in k.iter().enumerate() {
+                let off = j as isize - r as isize;
+                let idx = if horizontal {
+                    y * w + clamp_index(x, off, w)
+                } else {
+                    clamp_index(y, off, h) * w + x
+                };
+                acc += kv * src[idx];
+            }
+            out[y * w + x] = acc;
+            x += 1;
+        }
+    }
+    out
 }
