@@ -1,0 +1,9 @@
+# Opt-in: wider vector code for the SIMD kernels.
+#
+# The default build targets baseline x86_64 (SSE2). Uncomment the lines below to build for
+# AVX2-class CPUs (x86-64-v3, Intel Haswell or AMD Excavator and newer). The kernels do no
+# fused multiply-add, so the output is bit-identical to the default build. The golden tests
+# check this. Only x86_64 CPUs have this target, so do not enable it for other architectures.
+#
+# [build]
+# rustflags = ["-C", "target-cpu=x86-64-v3"]

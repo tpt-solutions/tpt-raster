@@ -37,6 +37,10 @@ cargo build -p tpt-raster --no-default-features --target wasm32-unknown-unknown
 # Example: the spec §4 pipeline as ASCII.
 cargo run -p tpt-raster --example pipeline
 
+# Opt-in: build the SIMD kernels for AVX2-class CPUs (x86_64 only). The output is bit-identical
+# to the default build. Either uncomment the `[build]` block in `.cargo/config.toml`, or run:
+RUSTFLAGS="-C target-cpu=x86-64-v3" cargo test -p tpt-raster --features simd --release
+
 # Slow fuzz run (about 30 s):
 cargo test -p tpt-raster --test rasterize -- --ignored
 ```

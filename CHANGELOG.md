@@ -20,6 +20,7 @@ Pre-1.0. The API may change.
 - Filters: Gaussian blur, separable and 3×3 convolution, sharpen, Sobel edges, 5×4 colour
   matrices with brightness, contrast, saturate, hue-rotate and sepia presets, and morphology.
 - Optional `simd` feature: `round_to_u8_x8`, a SIMD SourceOver composite for Rgba8 destinations (about 1.1–1.4×), and a SIMD separable blur (about 1.1–1.2×). All bit-exact with scalar.
+- Opt-in AVX2 build (`.cargo/config.toml`, commented out by default), bit-identical to the default build.
 - Stride fuzzing, regression goldens (FNV-1a, six scenes), and a pipeline example.
 - CI workflow: fmt, clippy, tests on Linux x86_64 and ARM64, macOS and Windows, plus no_std
   builds for wasm32 and thumbv7em.
