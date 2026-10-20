@@ -14,6 +14,9 @@ use crate::surface::{Surface, SurfaceError};
 ///
 /// Inputs and output are premultiplied `[r, g, b, a]` in `0.0..=1.0`.
 pub trait BlendMode {
+    /// True only when `blend` is exactly premultiplied SourceOver. Lets the SIMD path replace it.
+    const IS_SOURCE_OVER: bool = false;
+
     /// Combines one premultiplied source pixel with one premultiplied destination pixel.
     fn blend(src: [f32; 4], dst: [f32; 4]) -> [f32; 4];
 }
@@ -23,6 +26,8 @@ pub trait BlendMode {
 pub struct SourceOver;
 
 impl BlendMode for SourceOver {
+    const IS_SOURCE_OVER: bool = true;
+
     #[inline]
     fn blend(src: [f32; 4], dst: [f32; 4]) -> [f32; 4] {
         let k = 1.0 - src[3];
@@ -58,6 +63,12 @@ where
         opacity.clamp(0.0, 1.0)
     };
     let (src_cs, dst_cs) = (src.color_space(), dst.color_space());
+
+    #[cfg(all(feature = "simd", not(feature = "scalar-fallback")))]
+    if B::IS_SOURCE_OVER && src_cs == dst_cs {
+        crate::simd::composite_source_over(dst, src, opacity);
+        return Ok(());
+    }
 
     for y in 0..dst.height() {
         for x in 0..dst.width() {

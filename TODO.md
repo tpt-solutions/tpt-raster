@@ -83,22 +83,22 @@ Source of truth: [spec.txt](spec.txt)
 - [~] **Milestone:** complex paths with smooth edges — area-conservation holds on 300 random star-shaped polygons (within 1e-3 relative). Visual inspection not done.
 
 ## Phase 3 — SIMD Acceleration (Weeks 6–8)
-- [ ] Study/confirm `tpt-simd` API; add thin abstraction layer if needed
-- [ ] SIMD `SourceOver` (8/16 px per iteration) with scalar tail handling
+- [x] Study/confirm `tpt-simd` API; add thin abstraction layer if needed — `src/simd.rs` is the only layer. It uses `Simd<f32, 8>` with `max`/`min`/`zip_with`/`map`, and `round_to_nearest_even_i32` plus a clamp for rounding. tpt-simd has no operator overloads.
+- [~] SIMD `SourceOver` (8 px per iteration) with scalar tail — `simd::composite_source_over`, dispatched from `composite_surface` under the `simd` feature. Bit-exact with the scalar reference, but **0.5× the scalar speed**: lanes are filled with per-pixel `get_pixel`, so the arithmetic is not the bottleneck. Needs packed row loads before it can help.
 - [ ] SIMD coverage accumulation & mask-apply in rasterizer
-- [ ] SIMD Rgba8 <-> f32 pack/unpack, `round_to_u8`
-- [~] Scalar fallback behind feature flag — `scalar-fallback` feature declared, no SIMD code yet to switch off
+- [~] SIMD Rgba8 <-> f32 pack/unpack, `round_to_u8` — `round_to_u8_x8` and `unit_to_u8_x8` are done and match the scalar function on special values and 200k random bit patterns. Pack/unpack is not started.
+- [x] Scalar fallback behind feature flag — `scalar-fallback` forces the scalar composite. Tested both ways: 109 tests with `simd`, 103 without.
 ### Module D: `sample`
 - [x] Interpolation: Nearest (scalar)
-- [x] Interpolation: Bilinear (scalar; SIMD version pending Phase 3)
+- [x] Interpolation: Bilinear (scalar; SIMD version pending)
 - [x] Interpolation: Bicubic Mitchell-Netravali (scalar; SIMD pending)
 - [x] Interpolation: Lanczos3 (scalar; SIMD pending)
 - [x] Edge modes: Clamp, Repeat, Mirror, Transparent
 - [x] Mipmap generation + level selection for downscaling — 2×2 box chain, level = floor(log2(downscale)); no trilinear blend between levels
 - [x] Transformed image draw (scale/rotate/skew via `Affine2`) — `draw_image`, inverse mapping per destination pixel; returns `SingularTransform` for non-invertible matrices
 ### Verification
-- [ ] SIMD-vs-scalar byte-for-byte equivalence test harness (whole test suite runs twice)
-- [ ] Criterion-style benchmarks baseline (scalar vs. SIMD) — no benchmark harness yet; `tpt-testkit::bench` exists as a timing helper only
+- [~] SIMD-vs-scalar byte-for-byte equivalence harness (whole test suite runs twice) — `tests/simd.rs` compares rounding and composite bit-for-bit against a scalar reference, over random and special inputs. The whole suite also runs with `simd` on (109 tests) and forced scalar (103 tests). It is not yet a byte-diff of every filter and sampler output.
+- [~] Criterion-style benchmarks baseline — ignored test `bench_simd_composite_against_scalar` (release, `--nocapture`). Measured 1024×1024 composite: SIMD dispatch 117 Mpx/s, scalar reference 230 Mpx/s, ratio 0.51×. No Criterion, no filters or blends yet.
 - [ ] **Milestone:** ≥10× over scalar baseline
 
 ## Phase 4 — Filters & Advanced Blending (Weeks 9–11)
@@ -116,7 +116,7 @@ Source of truth: [spec.txt](spec.txt)
 ### Module C (complete)
 - [x] Remaining Porter-Duff: Clear, Source, Destination, DestinationOver, SourceIn, DestinationIn, SourceOut, DestinationOut, SourceAtop, DestinationAtop, Xor, Plus (`src/modes.rs`)
 - [x] CSS/SVG blend modes (15): Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color, Luminosity — W3C formula, scalar f32
-- [ ] SIMD versions of all blend modes — Phase 3 blocked on tpt-simd gaps (see Open items)
+- [ ] SIMD versions of all blend modes — not started. The blend modes are scalar only.
 - [x] Pipeline demo: blurred translucent card (spec §4) as integration test — `tests/pipeline.rs`. **Deviation:** the card is a shape on a transparent surface. The spec's "clear the surface to translucent white" would tint the whole screen.
 - [~] **Milestone:** HTML5 Canvas 2D compositing parity — the operators are checked against hand-computed values and identities, **not against browser reference output**. Parity is unverified.
 

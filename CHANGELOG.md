@@ -18,11 +18,12 @@ Pre-1.0. The API may change.
   transparent edge modes. Transformed image draws, mipmap chains, and mipmapped draws.
 - Filters: Gaussian blur, separable and 3×3 convolution, sharpen, Sobel edges, 5×4 colour
   matrices with brightness, contrast, saturate, hue-rotate and sepia presets, and morphology.
+- Optional `simd` feature: `round_to_u8_x8` and a SIMD SourceOver composite on tpt-simd, bit-exact with the scalar path. The composite is currently slower than scalar (0.51×).
 - CI workflow: fmt, clippy, tests on Linux x86_64 and ARM64, macOS and Windows, plus no_std
   builds for wasm32 and thumbv7em.
 
 ### Not yet
-- SIMD backend (Phase 3).
+- SIMD backend beyond rounding and SourceOver composite. The SIMD composite is slower than scalar until packed loads land.
 - Surface-backed pattern paint type in `tpt-canvas`.
 - Real `tpt-color`, `tpt-canvas` and `tpt-testkit`.
 - Licence and crate publishing metadata.

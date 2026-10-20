@@ -9,7 +9,7 @@ samples images, and runs convolution, colour and morphology filters.
 - Output is meant to be deterministic: the same inputs give the same bytes on every platform.
 
 **Status: pre-1.0.** Phases 0–2 and 4 of [TODO.md](TODO.md) are implemented on the scalar path.
-The SIMD backend (Phase 3) is not started. Cross-platform identity has not been verified.
+The SIMD backend (Phase 3) is partial: rounding and SourceOver composite are implemented on tpt-simd, and they match the scalar code bit for bit. The SIMD composite is currently slower than scalar, so it needs packed loads. Cross-platform identity has not been verified.
 
 ## Layout
 

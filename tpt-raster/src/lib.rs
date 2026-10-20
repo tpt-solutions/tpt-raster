@@ -20,6 +20,8 @@ pub mod pixel;
 pub mod rasterize;
 pub mod round;
 pub mod sample;
+#[cfg(feature = "simd")]
+pub mod simd;
 pub mod surface;
 
 pub use surface::{Surface, SurfaceError};
