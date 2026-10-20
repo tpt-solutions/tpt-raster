@@ -128,7 +128,7 @@ Source of truth: [spec.txt](spec.txt)
 - [~] Final golden-file suite (cross-platform: x86_64, ARM64, WASM identical) — `tests/golden.rs` pins FNV-1a hashes of six fixed scenes (star, blur, bicubic rotation, mipmapped draw, Hue blend, morphology). Same hashes with and without `simd`. Cross-platform check needs the CI matrix to run, and WASM has no test runner yet.
 - [ ] Benchmarks in CI; fail on >5% regression
 - [x] API docs, README, examples, `unsafe` audit — `cargo doc -D warnings` clean; README written; `examples/pipeline.rs` prints the §4 pipeline as ASCII; `#![forbid(unsafe_code)]`.
-- [~] CHANGELOG, license, crate metadata — CHANGELOG written. **Licence not chosen** (blocks publishing). Packages are `publish = false`.
+- [x] CHANGELOG and licence — CHANGELOG written. Licence is MIT OR Apache-2.0, copyright TPT Solutions, with LICENSE-MIT and LICENSE-APACHE. Crate metadata is set. `publish = false` until you decide to publish.
 - [ ] Publish v1.0.0
 
 ## Cross-Cutting

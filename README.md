@@ -46,4 +46,11 @@ APIs the spec names. They will be replaced by the real crates.
 
 ## Licence
 
-Not yet chosen.
+Dual-licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT license ([LICENSE-MIT](LICENSE-MIT))
+
+at your option.
+
+Copyright (c) 2026 TPT Solutions.

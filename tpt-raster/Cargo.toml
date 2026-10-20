@@ -4,6 +4,8 @@ description = "Pure-Rust, SIMD-accelerated 2D rasterization and compositing engi
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
 publish = false
 
 [features]

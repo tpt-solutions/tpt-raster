@@ -5,6 +5,7 @@
 Pre-1.0. The API may change.
 
 ### Added
+- Dual licence: MIT OR Apache-2.0, copyright TPT Solutions.
 - Workspace with local stubs for `tpt-color`, `tpt-canvas` and `tpt-testkit`. `tpt-simd` is an
   optional git dependency pinned to `be4f4c4`.
 - `Surface` with owned and borrowed buffers, pixel-unit stride, and bounds policy
@@ -27,5 +28,5 @@ Pre-1.0. The API may change.
 - SIMD backend beyond rounding and the Rgba8 SourceOver composite. The 10× milestone is not met.
 - Surface-backed pattern paint type in `tpt-canvas`.
 - Real `tpt-color`, `tpt-canvas` and `tpt-testkit`.
-- Licence and crate publishing metadata.
+- Crate publishing (`publish = false` until you decide to publish).
 - WASM test runner, Criterion benchmarks, and a cross-platform run of the golden suite.
