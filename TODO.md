@@ -123,10 +123,10 @@ Source of truth: [spec.txt](spec.txt)
 ## Phase 5 — Integration & Polish (Week 12)
 - [ ] `tpt-canvas::RasterBackend` integration (against stub, then real when available)
 - [~] Fuzzing: random/malformed paths into `rasterize_path` — 5k cases in the normal suite, plus an `#[ignore]`d 2M-case run that passes (about 28 s). Not yet run in CI.
-- [~] Fuzz filters, sampler and composite with random dims/strides — filters and sampler fuzzed (dims 0–9, extreme sigmas and transforms). Stride is not fuzzed yet.
-- [ ] Final golden-file suite (cross-platform: x86_64, ARM64, WASM identical)
+- [x] Fuzz filters, sampler and composite with random dims/strides — `tests/stride.rs`: 100–200 random geometries per op, with padding filled by a sentinel. Checks that padding is never written and that strided results equal packed results. Covers composite (f32 and Rgba8), blur, sharpen, morphology, colour matrix, rasterize and draw_image.
+- [~] Final golden-file suite (cross-platform: x86_64, ARM64, WASM identical) — `tests/golden.rs` pins FNV-1a hashes of six fixed scenes (star, blur, bicubic rotation, mipmapped draw, Hue blend, morphology). Same hashes with and without `simd`. Cross-platform check needs the CI matrix to run, and WASM has no test runner yet.
 - [ ] Benchmarks in CI; fail on >5% regression
-- [~] API docs, README, examples, `unsafe` audit — `cargo doc -D warnings` clean; README written; `#![forbid(unsafe_code)]`. **No examples yet.**
+- [x] API docs, README, examples, `unsafe` audit — `cargo doc -D warnings` clean; README written; `examples/pipeline.rs` prints the §4 pipeline as ASCII; `#![forbid(unsafe_code)]`.
 - [~] CHANGELOG, license, crate metadata — CHANGELOG written. **Licence not chosen** (blocks publishing). Packages are `publish = false`.
 - [ ] Publish v1.0.0
 

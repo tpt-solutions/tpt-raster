@@ -34,6 +34,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo build -p tpt-raster --no-default-features --target thumbv7em-none-eabihf
 cargo build -p tpt-raster --no-default-features --target wasm32-unknown-unknown
 
+# Example: the spec §4 pipeline as ASCII.
+cargo run -p tpt-raster --example pipeline
+
 # Slow fuzz run (about 30 s):
 cargo test -p tpt-raster --test rasterize -- --ignored
 ```

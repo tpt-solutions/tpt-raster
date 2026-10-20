@@ -19,6 +19,7 @@ Pre-1.0. The API may change.
 - Filters: Gaussian blur, separable and 3×3 convolution, sharpen, Sobel edges, 5×4 colour
   matrices with brightness, contrast, saturate, hue-rotate and sepia presets, and morphology.
 - Optional `simd` feature: `round_to_u8_x8`, and a SIMD SourceOver composite for Rgba8 destinations (about 1.1–1.4× the scalar path). Bit-exact with scalar.
+- Stride fuzzing, regression goldens (FNV-1a, six scenes), and a pipeline example.
 - CI workflow: fmt, clippy, tests on Linux x86_64 and ARM64, macOS and Windows, plus no_std
   builds for wasm32 and thumbv7em.
 
@@ -27,3 +28,4 @@ Pre-1.0. The API may change.
 - Surface-backed pattern paint type in `tpt-canvas`.
 - Real `tpt-color`, `tpt-canvas` and `tpt-testkit`.
 - Licence and crate publishing metadata.
+- WASM test runner, Criterion benchmarks, and a cross-platform run of the golden suite.
