@@ -343,3 +343,82 @@ fn radial_gradient_is_from_at_centre_and_to_beyond_radius() {
     assert_eq!(paint.color_at(0.0, 0.0), [1.0, 0.0, 0.0, 1.0]);
     assert_eq!(paint.color_at(10.0, 0.0), [0.0, 0.0, 1.0, 1.0]);
 }
+
+/// A regular polygon approximating a circle, centred on `(cx, cy)`.
+fn circle(cx: f32, cy: f32, r: f32, n: usize) -> Vec<[f32; 2]> {
+    (0..n)
+        .map(|k| {
+            let a = std::f32::consts::TAU * k as f32 / n as f32;
+            [cx + r * a.cos(), cy + r * a.sin()]
+        })
+        .collect()
+}
+
+/// A pentagram: the five points joined in steps of two, so the path crosses itself.
+fn pentagram(cx: f32, cy: f32, r: f32) -> Vec<[f32; 2]> {
+    (0..5)
+        .map(|k| {
+            let a = std::f32::consts::TAU * (2 * k) as f32 / 5.0 - std::f32::consts::FRAC_PI_2;
+            [cx + r * a.cos(), cy + r * a.sin()]
+        })
+        .collect()
+}
+
+fn shoelace(p: &[[f32; 2]]) -> f64 {
+    let n = p.len();
+    let twice: f64 = (0..n)
+        .map(|i| {
+            let (a, b) = (p[i], p[(i + 1) % n]);
+            a[0] as f64 * b[1] as f64 - b[0] as f64 * a[1] as f64
+        })
+        .sum();
+    (twice / 2.0).abs()
+}
+
+#[test]
+fn circle_coverage_matches_its_polygon_area() {
+    let c = circle(16.0, 16.0, 12.0, 96);
+    let m = mask(32, 32, &path(vec![c.clone()]), FillRule::NonZero);
+    let got = total(&m);
+    let want = shoelace(&c);
+    assert!((got - want).abs() < 1e-3 * want, "{got} vs {want}");
+    // The circle's true area is pi r^2; 96 sides come within 0.1% of it.
+    let pi_r2 = std::f64::consts::PI * 144.0;
+    assert!((got - pi_r2).abs() / pi_r2 < 0.002, "{got} vs {pi_r2}");
+}
+
+#[test]
+fn pentagram_fill_rules_differ_in_the_self_overlap() {
+    // A pentagram's central pentagon is winding 2, so NonZero fills it and EvenOdd leaves a hole.
+    let s = pentagram(16.0, 16.0, 14.0);
+    let p = path(vec![s]);
+    let nz = total(&mask(32, 32, &p, FillRule::NonZero));
+    let eo = total(&mask(32, 32, &p, FillRule::EvenOdd));
+    assert!(nz > eo, "nonzero {nz} should exceed evenodd {eo}");
+    assert!(eo > 0.0);
+}
+
+#[test]
+#[ignore = "long-running fuzz: cargo test -p tpt-raster --test rasterize -- --ignored"]
+fn long_fuzz_random_paths_never_panic() {
+    let mut rng = Rng::new(0xDEAD_BEEF);
+    for _ in 0..2_000_000 {
+        let w = rng.below(24) as u32;
+        let h = rng.below(24) as u32;
+        let n = rng.below(9) as usize;
+        let pts: Vec<[f32; 2]> = (0..n)
+            .map(|_| [rng.next_f32_bits(), rng.next_f32_bits()])
+            .collect();
+        let rule = if rng.below(2) == 0 {
+            FillRule::NonZero
+        } else {
+            FillRule::EvenOdd
+        };
+        let m = coverage_mask(w, h, &path(vec![pts]), &Affine2::IDENTITY, rule).unwrap();
+        assert!(
+            m.as_slice()
+                .iter()
+                .all(|c| c.is_finite() && (0.0..=1.0).contains(c))
+        );
+    }
+}

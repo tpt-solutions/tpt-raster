@@ -35,6 +35,8 @@ pub enum SurfaceError {
     SizeOverflow,
     /// Source and destination have different dimensions.
     DimensionMismatch,
+    /// A transform has no inverse, so destination pixels cannot be mapped back to the source.
+    SingularTransform,
 }
 
 impl fmt::Display for SurfaceError {
@@ -48,6 +50,7 @@ impl fmt::Display for SurfaceError {
             }
             Self::SizeOverflow => f.write_str("surface size overflows usize"),
             Self::DimensionMismatch => f.write_str("surface dimensions do not match"),
+            Self::SingularTransform => f.write_str("transform has no inverse"),
         }
     }
 }

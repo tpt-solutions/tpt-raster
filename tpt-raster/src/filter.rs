@@ -22,7 +22,7 @@ use crate::surface::Surface;
 pub const MAX_SIGMA: f32 = 256.0;
 
 /// Sigma below this is treated as identity. Smaller values make the kernel exponent overflow.
-const MIN_SIGMA: f32 = 1.0e-3;
+pub const MIN_SIGMA: f32 = 1.0e-3;
 
 /// One pixel in the f32 working buffer: `[r, g, b, a]`.
 type Px = [f32; 4];

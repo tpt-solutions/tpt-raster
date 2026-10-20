@@ -26,6 +26,30 @@ impl Affine2 {
     }
 }
 
+impl Affine2 {
+    /// The inverse transform, or `None` if the matrix is singular or non-finite.
+    pub fn invert(&self) -> Option<Self> {
+        let [a, b, c, d, e, f] = self.m;
+        let det = a * d - b * c;
+        if det == 0.0 || !det.is_finite() {
+            return None;
+        }
+        let inv = [
+            d / det,
+            -b / det,
+            -c / det,
+            a / det,
+            (c * f - d * e) / det,
+            (b * e - a * f) / det,
+        ];
+        if inv.iter().all(|v| v.is_finite()) {
+            Some(Self { m: inv })
+        } else {
+            None
+        }
+    }
+}
+
 impl Default for Affine2 {
     fn default() -> Self {
         Self::IDENTITY

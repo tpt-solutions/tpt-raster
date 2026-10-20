@@ -77,7 +77,7 @@ Source of truth: [spec.txt](spec.txt)
 - [x] `Paint`: Solid
 - [x] `Paint`: Linear gradient (2-stop, clamped; stub `tpt-canvas::Paint`)
 - [x] `Paint`: Radial gradient (2-stop, clamped)
-- [ ] `Paint`: Pattern (surface-backed) — needs a surface-backed `Paint` variant in tpt-canvas; not started
+- [~] `Paint`: Pattern (surface-backed) — implemented as `sample::draw_image` with `EdgeMode::Repeat` (tested as a repeating tile). **Not** a `Paint` variant: that needs a surface reference in tpt-canvas, which the stub does not have.
 - [x] Robustness: NaN/Inf dropped, zero-area and degenerate contours ignored, coordinates clamped to ±1e15, 5k-case fuzz with no panics or out-of-range coverage. Found and fixed: `dxdy` overflow gave NaN on near-horizontal edges.
 - [~] Golden tests: squares, half-pixel edges, triangle bytes, nesting under both rules, clipping, huge coords. **Circles, rounded rects, stars and thin lines are not yet covered by explicit goldens** (star polygons are covered by the area-conservation test).
 - [~] **Milestone:** complex paths with smooth edges — area-conservation holds on 300 random star-shaped polygons (within 1e-3 relative). Visual inspection not done.
@@ -89,16 +89,16 @@ Source of truth: [spec.txt](spec.txt)
 - [ ] SIMD Rgba8 <-> f32 pack/unpack, `round_to_u8`
 - [~] Scalar fallback behind feature flag — `scalar-fallback` feature declared, no SIMD code yet to switch off
 ### Module D: `sample`
-- [ ] Interpolation: Nearest
-- [ ] Interpolation: Bilinear (SIMD)
-- [ ] Interpolation: Bicubic Mitchell-Netravali (SIMD)
-- [ ] Interpolation: Lanczos3
-- [ ] Edge modes: Clamp, Repeat, Mirror, Transparent
-- [ ] Mipmap generation + level selection for downscaling
-- [ ] Transformed image draw (scale/rotate/skew via `Affine2`)
+- [x] Interpolation: Nearest (scalar)
+- [x] Interpolation: Bilinear (scalar; SIMD version pending Phase 3)
+- [x] Interpolation: Bicubic Mitchell-Netravali (scalar; SIMD pending)
+- [x] Interpolation: Lanczos3 (scalar; SIMD pending)
+- [x] Edge modes: Clamp, Repeat, Mirror, Transparent
+- [x] Mipmap generation + level selection for downscaling — 2×2 box chain, level = floor(log2(downscale)); no trilinear blend between levels
+- [x] Transformed image draw (scale/rotate/skew via `Affine2`) — `draw_image`, inverse mapping per destination pixel; returns `SingularTransform` for non-invertible matrices
 ### Verification
 - [ ] SIMD-vs-scalar byte-for-byte equivalence test harness (whole test suite runs twice)
-- [ ] Criterion-style benchmarks baseline (scalar vs. SIMD)
+- [ ] Criterion-style benchmarks baseline (scalar vs. SIMD) — no benchmark harness yet; `tpt-testkit::bench` exists as a timing helper only
 - [ ] **Milestone:** ≥10× over scalar baseline
 
 ## Phase 4 — Filters & Advanced Blending (Weeks 9–11)
@@ -122,12 +122,12 @@ Source of truth: [spec.txt](spec.txt)
 
 ## Phase 5 — Integration & Polish (Week 12)
 - [ ] `tpt-canvas::RasterBackend` integration (against stub, then real when available)
-- [ ] Fuzzing: random/malformed paths into `rasterize_path`; never panic/OOB (run millions of cases)
-- [ ] Fuzz filters, sampler, and composite with random dims/strides
+- [~] Fuzzing: random/malformed paths into `rasterize_path` — 5k cases in the normal suite, plus an `#[ignore]`d 2M-case run that passes (about 28 s). Not yet run in CI.
+- [~] Fuzz filters, sampler and composite with random dims/strides — filters and sampler fuzzed (dims 0–9, extreme sigmas and transforms). Stride is not fuzzed yet.
 - [ ] Final golden-file suite (cross-platform: x86_64, ARM64, WASM identical)
 - [ ] Benchmarks in CI; fail on >5% regression
-- [ ] API docs, README, examples, `unsafe` audit
-- [ ] CHANGELOG, license, crate metadata
+- [~] API docs, README, examples, `unsafe` audit — `cargo doc -D warnings` clean; README written; `#![forbid(unsafe_code)]`. **No examples yet.**
+- [~] CHANGELOG, license, crate metadata — CHANGELOG written. **Licence not chosen** (blocks publishing). Packages are `publish = false`.
 - [ ] Publish v1.0.0
 
 ## Cross-Cutting
