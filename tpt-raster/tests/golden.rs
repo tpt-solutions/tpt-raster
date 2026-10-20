@@ -259,3 +259,104 @@ const GOLDEN_BICUBIC: u64 = 0x203f_19fb_1438_f28b;
 const GOLDEN_MIPMAP: u64 = 0x9776_3c21_4cb9_49a5;
 const GOLDEN_HUE: u64 = 0x50be_eae4_e08c_d126;
 const GOLDEN_MORPH: u64 = 0x38ab_b494_d601_5735;
+
+/// Literal quarter-arc unit vectors, `(cos, sin)` from 0 to 90 degrees. No platform trig.
+const QUARTER: [(f32, f32); 3] = [(1.0, 0.0), (0.707_106_77, 0.707_106_77), (0.0, 1.0)];
+
+/// A 12-gon approximating a circle, from literal unit vectors every 30 degrees.
+fn golden_circle() -> FlattenedPath {
+    const COS: [f32; 12] = [
+        1.0,
+        0.866_025_4,
+        0.5,
+        0.0,
+        -0.5,
+        -0.866_025_4,
+        -1.0,
+        -0.866_025_4,
+        -0.5,
+        0.0,
+        0.5,
+        0.866_025_4,
+    ];
+    const SIN: [f32; 12] = [
+        0.0,
+        0.5,
+        0.866_025_4,
+        1.0,
+        0.866_025_4,
+        0.5,
+        0.0,
+        -0.5,
+        -0.866_025_4,
+        -1.0,
+        -0.866_025_4,
+        -0.5,
+    ];
+    let pts: Vec<[f32; 2]> = (0..12)
+        .map(|i| [20.0 + 11.0 * COS[i], 20.0 + 11.0 * SIN[i]])
+        .collect();
+    let mut p = FlattenedPath::new();
+    p.push_contour(pts);
+    p
+}
+
+/// A rectangle with quarter-circle corners of radius 4, using the literal table above.
+fn golden_rounded_rect() -> FlattenedPath {
+    let (x0, y0, x1, y1, r) = (3.0f32, 5.0f32, 28.0f32, 24.0f32, 4.0f32);
+    let mut pts = Vec::new();
+    for &(u, v) in &QUARTER {
+        pts.push([x0 + r - r * u, y0 + r - r * v]); // top-left, left -> top
+    }
+    for &(u, v) in &QUARTER {
+        pts.push([x1 - r + r * v, y0 + r - r * u]); // top-right, top -> right
+    }
+    for &(u, v) in &QUARTER {
+        pts.push([x1 - r + r * u, y1 - r + r * v]); // bottom-right, right -> bottom
+    }
+    for &(u, v) in &QUARTER {
+        pts.push([x0 + r - r * v, y1 - r + r * u]); // bottom-left, bottom -> left
+    }
+    let mut p = FlattenedPath::new();
+    p.push_contour(pts);
+    p
+}
+
+fn golden_scene(path: &FlattenedPath, rule: FillRule) -> Surface<'static, Rgba8> {
+    let mut s: Surface<'static, Rgba8> = Surface::new(32, 32, ColorSpaceId::Srgb).unwrap();
+    rasterize_path(
+        &mut s,
+        path,
+        &Affine2::IDENTITY,
+        rule,
+        &Paint::Solid([0.1, 0.8, 0.3, 1.0]),
+    )
+    .unwrap();
+    s
+}
+
+#[test]
+fn golden_circle_coverage() {
+    let s = golden_scene(&golden_circle(), FillRule::NonZero);
+    check("circle", &rgba8_bytes(&s), GOLDEN_CIRCLE);
+}
+
+#[test]
+fn golden_rounded_rect_coverage() {
+    let s = golden_scene(&golden_rounded_rect(), FillRule::NonZero);
+    check("rounded rect", &rgba8_bytes(&s), GOLDEN_ROUNDED);
+}
+
+#[test]
+fn golden_thin_line_coverage() {
+    // A 0.3-pixel band at y = 10.4..10.7 and a 0.6-pixel band at x = 4.2..4.8. Both are subpixel.
+    let mut p = FlattenedPath::new();
+    p.push_contour(vec![[1.0, 10.4], [30.0, 10.4], [30.0, 10.7], [1.0, 10.7]]);
+    p.push_contour(vec![[4.2, 1.0], [4.8, 1.0], [4.8, 30.0], [4.2, 30.0]]);
+    let s = golden_scene(&p, FillRule::NonZero);
+    check("thin lines", &rgba8_bytes(&s), GOLDEN_THIN);
+}
+
+const GOLDEN_CIRCLE: u64 = 0x7b6e_af7c_1d81_6e2d;
+const GOLDEN_ROUNDED: u64 = 0x0354_f981_a0ee_cbf8;
+const GOLDEN_THIN: u64 = 0x6955_1579_19de_7cc1;

@@ -27,9 +27,9 @@ Source of truth: [spec.txt](spec.txt)
   - MSRV **1.95**, edition **2024**, toolchain = stable (installed rustc 1.98 OK). tpt-raster uses edition 2024 / rust-version 1.95.
   - Scalar fallback exists (`scalar-only` feature); `std` feature for intrinsics; `nightly` feature exists — don't enable.
   - Uses `libm` for lane math; `lane_mul_add` uses hardware `mul_add` under `std`, libm `fmaf` otherwise (both correctly-rounded fused, should match) — **but** spec forbids relying on contraction ambiguity: avoid `mul_add` in pixel math unless fused-everywhere is guaranteed, and never build with `-C target-cpu=native` in golden/CI runs.
-- [ ] Decide which `tpt-simd-*` member crates to depend on — **decided** (see Decisions); revisit once Phase 3 needs more.
+- [x] Decide which `tpt-simd-*` member crates to depend on — **decided** (see Decisions); revisit once Phase 3 needs more.
 - [ ] Verify cross-platform bit-identity of rounding/saturate/blend ops on x86_64 vs. ARM64 vs. WASM (tpt-simd is v0.1.0, 14 commits — treat as unproven; our SIMD-vs-scalar equivalence tests double as its validation). **Blocked here:** CI matrix covers Linux x86_64, Linux ARM64, macOS, Windows, but no run has happened yet, and no wasm test runner is set up.
-- [ ] Feed gaps found in tpt-simd (e.g. `round_to_u8`, u8↔f32 pack/unpack for RGBA) back upstream as issues/PRs — **needs your go-ahead** (outward-facing).
+- [ ] Feed gaps found in tpt-simd (e.g. `round_to_u8`, u8↔f32 pack/unpack for RGBA) back upstream as issues/PRs. **Decision (recommended):** drafted in `scratchpad/tpt-simd-issues-draft.md`, **not posted**, because filing is outward-facing. File after review.
 
 ---
 
@@ -79,17 +79,17 @@ Source of truth: [spec.txt](spec.txt)
 - [x] `Paint`: Radial gradient (2-stop, clamped)
 - [~] `Paint`: Pattern (surface-backed) — implemented as `sample::draw_image` with `EdgeMode::Repeat` (tested as a repeating tile). **Not** a `Paint` variant: that needs a surface reference in tpt-canvas, which the stub does not have.
 - [x] Robustness: NaN/Inf dropped, zero-area and degenerate contours ignored, coordinates clamped to ±1e15, 5k-case fuzz with no panics or out-of-range coverage. Found and fixed: `dxdy` overflow gave NaN on near-horizontal edges.
-- [~] Golden tests: squares, half-pixel edges, triangle bytes, nesting under both rules, clipping, huge coords. **Circles, rounded rects, stars and thin lines are not yet covered by explicit goldens** (star polygons are covered by the area-conservation test).
+- [~] Golden tests: squares, half-pixel edges, triangle bytes, nesting under both rules, clipping, huge coords. Circles, rounded rects, a simple star and thin lines now have **analytic** coverage tests in `tests/rasterize.rs`: circle area against its polygon, rounded-rect area against `w*h - (4-π)r²`, a 0.25-px horizontal band giving exactly 0.25 coverage, and a 0.5-px diagonal band against its geometric area. They check values. Byte goldens pin a circle, a rounded rect and thin lines in `tests/golden.rs`, with literal geometry so the pins are platform-independent.
 - [~] **Milestone:** complex paths with smooth edges — area-conservation holds on 300 random star-shaped polygons (within 1e-3 relative). Visual inspection not done.
 
 ## Phase 3 — SIMD Acceleration (Weeks 6–8)
 - [x] Study/confirm `tpt-simd` API; add thin abstraction layer if needed — `src/simd.rs` is the only layer. It uses `Simd<f32, 8>` with `max`/`min`/`zip_with`/`map`, and `round_to_nearest_even_i32` plus a clamp for rounding. tpt-simd has no operator overloads.
 - [~] SIMD `SourceOver` (8 px per iteration) with scalar tail — `simd::composite_source_over`. Row-based, with lane load/store hooks on `PixelFormat`. Rgba8 has a lane path (`byte as f32 / 255`, lane rounding via `unit_to_u8_x8`), so only Rgba8 destinations dispatch to it (`HAS_LANE_PATH`). Bit-exact with the scalar reference. Measured against the crate's own scalar composite: Rgba8 about 1.1–1.4×, Rgba32F slower (0.8–0.9×), so Rgba32F stays scalar. The 10× milestone is not met.
-- [ ] SIMD coverage accumulation & mask-apply in rasterizer
+- [ ] SIMD coverage accumulation & mask-apply in rasterizer — **Decision (recommended): deferred.** The per-row prefix sum is sequential, so vectorising it changes the f32 operation order and would invalidate the goldens. Revisit only with a new golden baseline.
 - [~] SIMD separable blur — `simd::convolve_plane_x8` runs each pass on channel planes, eight pixels per lane group, with the same tap order as the scalar code. Bit-identical: `convolve_plane_x8` is tested against an independent reference over 300 random cases, and the blur goldens hold with and without `simd`. Measured on 1024×1024 Rgba32F, sigma 4: about 82 ms SIMD against 90–94 ms scalar (≈1.1–1.2×). Default x86_64 is 128-bit SSE2, so 8-lane vectors take two ops. Wider lanes would need a non-default target, which the goldens rule out. The bench is an ignored test, `bench_gaussian_blur_simd_vs_scalar`.
 *Profiling (release, 1024×1024 Rgba32F, sigma 4):* one plane pass is about 6–7 ms SIMD against 30–47 ms for the naive reference, so the kernel is about 5× per pass. The full blur is 8 passes plus about 15 ms of load and store, which keeps the total at about 1.1–1.4× the crate's scalar blur. Tried and reverted: row-accumulation for the vertical pass (26 ms), and four independent blocks per pass (no gain). Building for AVX2 (`target-cpu=x86-64-v3`) gave about 1.4× on the horizontal pass and nothing on the vertical. The bottleneck is not vector width alone. Reaching 10× overall would need a different arithmetic order (which changes the goldens) or a fused multi-pass design. Neither is done.
 *Opt-in wider vectors (done):* `.cargo/config.toml` has a commented-out `target-cpu=x86-64-v3` block, and the README documents the `RUSTFLAGS` route. The default build is unchanged. Under this build the full suite passes, with the goldens (121 tests with `simd`), so the output matches. Measured 1024×1024 Rgba32F: blur about 1.1–1.2× faster than the default SIMD build. Rgba8 composite about 1.2–1.3× against the test's scalar reference, against 1.1× by default.
-- [~] SIMD Rgba8 <-> f32 pack/unpack, `round_to_u8` — `round_to_u8_x8` and `unit_to_u8_x8` are done and match the scalar function on special values and 200k random bit patterns. Pack/unpack is not started.
+- [x] SIMD Rgba8 <-> f32 pack/unpack, `round_to_u8` — `round_to_u8_x8` and `unit_to_u8_x8` match the scalar function on special values and 200k random bit patterns. Rgba8 pack/unpack runs through the `load_lanes`/`store_lanes` hooks in `pixel.rs`, which use the same lane rounding. The loads are still scalar gathers, so the speed-up is in the rounding, not the widening.
 - [x] Scalar fallback behind feature flag — `scalar-fallback` forces the scalar composite. Tested both ways: 109 tests with `simd`, 103 without.
 ### Module D: `sample`
 - [x] Interpolation: Nearest (scalar)
@@ -119,7 +119,7 @@ Source of truth: [spec.txt](spec.txt)
 ### Module C (complete)
 - [x] Remaining Porter-Duff: Clear, Source, Destination, DestinationOver, SourceIn, DestinationIn, SourceOut, DestinationOut, SourceAtop, DestinationAtop, Xor, Plus (`src/modes.rs`)
 - [x] CSS/SVG blend modes (15): Multiply, Screen, Overlay, Darken, Lighten, ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion, Hue, Saturation, Color, Luminosity — W3C formula, scalar f32
-- [ ] SIMD versions of all blend modes — not started. The blend modes are scalar only.
+- [ ] SIMD versions of all blend modes — **Decision (recommended): deferred.** The blend modes are scalar. Lane versions of 15 formulas need bit-exact op ordering, and the measured SIMD gain so far is small (1.1–1.4×). Revisit if a profile shows blending as a hot spot.
 - [x] Pipeline demo: blurred translucent card (spec §4) as integration test — `tests/pipeline.rs`. **Deviation:** the card is a shape on a transparent surface. The spec's "clear the surface to translucent white" would tint the whole screen.
 - [~] **Milestone:** HTML5 Canvas 2D compositing parity — the operators are checked against hand-computed values and identities, **not against browser reference output**. Parity is unverified.
 
@@ -131,10 +131,10 @@ Source of truth: [spec.txt](spec.txt)
 - [ ] Benchmarks in CI; fail on >5% regression
 - [x] API docs, README, examples, `unsafe` audit — `cargo doc -D warnings` clean; README written; `examples/pipeline.rs` prints the §4 pipeline as ASCII; `#![forbid(unsafe_code)]`.
 - [x] CHANGELOG and licence — CHANGELOG written. Licence is MIT OR Apache-2.0, copyright TPT Solutions, with LICENSE-MIT and LICENSE-APACHE. Crate metadata is set. `publish = false` until you decide to publish.
-- [ ] Publish v1.0.0
+- [ ] Publish v1.0.0 — **Decision (recommended): do not publish v1.0.0 yet.** The 10× milestone is unmet, and the cross-platform checks have not run. Ship as 0.x once CI is green. `publish = false` stays.
 
 ## Cross-Cutting
 - [~] Determinism review: no FMA contraction, fixed op ordering, no f64 pixel math, no `libm`-dependent functions without a deterministic implementation — **no f64 and no `unsafe` in use; Rust does not contract `a*b+c` by default.** `libm` is used for `powf`, `rintf`. Those are software implementations, but they have not been reviewed for determinism.
 - [x] Minimize `unsafe`; document every block — *`tpt-raster` and the stubs use `#![forbid(unsafe_code)]`.*
-- [ ] No-allocation hot paths (scratch buffers reused) — composite allocates nothing per pixel, but no scratch-buffer design exists yet
+- [ ] No-allocation hot paths (scratch buffers reused) — **Decision (recommended): deferred.** Composite allocates nothing per pixel. Filters allocate one f32 buffer per pass, not per pixel. Scratch reuse is an API change with little measured benefit yet.
 - [x] Error type design (`no_std` compatible) — `SurfaceError` implements `Display` via `core::fmt`

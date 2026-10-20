@@ -422,3 +422,88 @@ fn long_fuzz_random_paths_never_panic() {
         );
     }
 }
+
+/// A rectangle with quarter-circle corners of radius `r`, each arc split into `seg` steps.
+fn rounded_rect(x0: f32, y0: f32, x1: f32, y1: f32, r: f32, seg: usize) -> Vec<[f32; 2]> {
+    use std::f32::consts::{FRAC_PI_2, PI};
+    let corners = [
+        (x0 + r, y0 + r, PI),
+        (x1 - r, y0 + r, PI + FRAC_PI_2),
+        (x1 - r, y1 - r, 0.0),
+        (x0 + r, y1 - r, FRAC_PI_2),
+    ];
+    let mut pts = Vec::with_capacity(4 * (seg + 1));
+    for (cx, cy, start) in corners {
+        for k in 0..=seg {
+            let a = start + FRAC_PI_2 * k as f32 / seg as f32;
+            pts.push([cx + r * a.cos(), cy + r * a.sin()]);
+        }
+    }
+    pts
+}
+
+#[test]
+fn rounded_rect_area_matches_the_analytic_shape() {
+    // Area is w*h minus the four corner squares' missing quarter discs: (4 - pi) r^2.
+    let (w, h, r) = (20.0f64, 12.0f64, 4.0f64);
+    let p = rounded_rect(2.0, 2.0, 22.0, 14.0, r as f32, 32);
+    let m = mask(24, 16, &path(vec![p]), FillRule::NonZero);
+    let want = w * h - (4.0 - std::f64::consts::PI) * r * r;
+    let got = total(&m);
+    assert!((got - want).abs() / want < 2e-3, "{got} vs {want}");
+    // The sharp corner pixel is outside the arc; the pixel just inside the middle of an edge is full.
+    assert!(m[2][2] < 0.01, "corner pixel {}", m[2][2]);
+    assert!((m[8][12] - 1.0).abs() < EPS, "edge pixel {}", m[8][12]);
+}
+
+#[test]
+fn thin_horizontal_line_covers_exactly_its_width() {
+    // A 0.25-pixel-tall band across row 1 gives 0.25 coverage along the whole row, and nothing else.
+    let m = mask(
+        4,
+        4,
+        &path(vec![rect(0.0, 1.2, 4.0, 1.45)]),
+        FillRule::NonZero,
+    );
+    for (y, row) in m.iter().enumerate() {
+        for (x, &c) in row.iter().enumerate() {
+            let want = if y == 1 { 0.25 } else { 0.0 };
+            assert!((c - want).abs() < EPS, "({x},{y}) = {c}");
+        }
+    }
+}
+
+#[test]
+fn thin_diagonal_line_has_its_geometric_area() {
+    // A 0.5-pixel-thick segment at 45 degrees, length 8*sqrt(2), lies inside the surface.
+    // Its area is length * thickness, with the perpendicular offset of 0.25 on each side.
+    let s = std::f32::consts::FRAC_1_SQRT_2;
+    let d = 0.25f32;
+    let (ox, oy) = (d * s, -d * s);
+    let (a, b) = ([1.0, 1.0], [9.0, 9.0]);
+    let poly = vec![
+        [a[0] + ox, a[1] + oy],
+        [b[0] + ox, b[1] + oy],
+        [b[0] - ox, b[1] - oy],
+        [a[0] - ox, a[1] - oy],
+    ];
+    let m = mask(12, 12, &path(vec![poly.clone()]), FillRule::NonZero);
+    let want = shoelace(&poly);
+    let got = total(&m);
+    assert!((got - want).abs() < 1e-3 * want, "{got} vs {want}");
+    assert!((want - 8.0 * 2f64.sqrt() * 0.5).abs() < 1e-3);
+}
+
+#[test]
+fn five_point_star_coverage_matches_its_polygon_area() {
+    // A simple (non-self-intersecting) ten-vertex star: outer radius 14, inner radius 6.
+    let mut star = Vec::new();
+    for k in 0..10 {
+        let r = if k % 2 == 0 { 14.0f32 } else { 6.0 };
+        let a = std::f32::consts::TAU * k as f32 / 10.0 - std::f32::consts::FRAC_PI_2;
+        star.push([16.0 + r * a.cos(), 16.0 + r * a.sin()]);
+    }
+    let want = shoelace(&star);
+    let got = total(&mask(32, 32, &path(vec![star]), FillRule::NonZero));
+    assert!((got - want).abs() < 1e-3 * want, "{got} vs {want}");
+}
