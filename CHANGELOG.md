@@ -5,6 +5,8 @@
 Pre-1.0. The API may change.
 
 ### Added
+- `RasterBackend` trait in the `tpt-canvas` stub, implemented for `Surface` in `tpt-raster`, so
+  paths and paints from `tpt-canvas` can be drawn through a backend.
 - Dual licence: MIT OR Apache-2.0, copyright TPT Solutions.
 - Workspace with local stubs for `tpt-color`, `tpt-canvas` and `tpt-testkit`. `tpt-simd` is an
   optional git dependency pinned to `be4f4c4`.

@@ -149,3 +149,22 @@ fn lerp(from: [f32; 4], to: [f32; 4], t: f32) -> [f32; 4] {
     let t = if t.is_nan() { 0.0 } else { t.clamp(0.0, 1.0) };
     [0, 1, 2, 3].map(|i| from[i] + (to[i] - from[i]) * t)
 }
+
+/// The seam between vector math and pixels.
+///
+/// `tpt-canvas` builds paths and resolves styles. A backend turns them into pixels. The
+/// spec puts this trait in `tpt-canvas` and the pixel work in `tpt-raster`. This stub keeps
+/// that shape, so backends can be written and tested before the real crate exists.
+pub trait RasterBackend {
+    /// Error reported by the backend.
+    type Error;
+
+    /// Fills `path` (transformed by `transform`) with `paint` under `rule`.
+    fn fill_path(
+        &mut self,
+        path: &FlattenedPath,
+        transform: &Affine2,
+        rule: FillRule,
+        paint: &Paint,
+    ) -> Result<(), Self::Error>;
+}

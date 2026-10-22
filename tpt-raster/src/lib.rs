@@ -13,6 +13,7 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+pub mod canvas;
 pub mod composite;
 pub mod filter;
 pub mod modes;
