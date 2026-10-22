@@ -30,6 +30,8 @@ Source of truth: [spec.txt](spec.txt)
 - [x] Decide which `tpt-simd-*` member crates to depend on — **decided** (see Decisions); revisit once Phase 3 needs more.
 - [ ] Verify cross-platform bit-identity of rounding/saturate/blend ops on x86_64 vs. ARM64 vs. WASM (tpt-simd is v0.1.0, 14 commits — treat as unproven; our SIMD-vs-scalar equivalence tests double as its validation). **Blocked here:** CI matrix covers Linux x86_64, Linux ARM64, macOS, Windows, but no run has happened yet, and no wasm test runner is set up.
 - [ ] Feed gaps found in tpt-simd (e.g. `round_to_u8`, u8↔f32 pack/unpack for RGBA) back upstream as issues/PRs. **Decision (recommended):** drafted in `scratchpad/tpt-simd-issues-draft.md`, **not posted**, because filing is outward-facing. File after review.
+  - **Re-checked upstream (master `ed05b33`, tag v0.1.1):** issues 1 and 2 of the draft are now resolved upstream. `tpt-simd-rounding::round_to_u8` (ties-to-even, clamp, NaN→0, returns `[u8; 8]`) and `tpt-simd-pixel::{planar,interleaved}_rgba8` both landed, so the draft is stale on those and needs updating before any filing. Still open: `tpt-simd-pixel::unit_f32_to_u8` rounds half up (`(v + 0.5) as u8`), which differs from ties-to-even at exact .5 values. Question 3 (cross-target bit-identity) is still unanswered; upstream CI runs x86_64 and aarch64 tests only, and wasm32 is build-only.
+  - **Bump test (not applied; pin stays `be4f4c4`):** with `ed05b33` in a temporary worktree, `tpt-raster` tests pass with `simd`, and wasm32 and riscv32imc `simd` builds finish. Upstream's `templates/` manifest prints a non-fatal `{{project-name}}` error during resolution. Upstream's aarch64 rounding now uses NEON `vrndn`/`fcvtzs` directly; the upstream comments say these match the portable definitions, but we have not run that path here.
 
 ---
 
@@ -42,7 +44,7 @@ Source of truth: [spec.txt](spec.txt)
 - [x] Stub `tpt-canvas`: `FlattenedPath`, `Affine2`, `FillRule`, `Paint` types *(`Paint` has `Solid` only)*
 - [x] Stub `tpt-testkit`: `golden`, `fuzz`, `bench` helpers
 - [x] CI (GitHub Actions): build, test, clippy, fmt, no_std target check (`wasm32-unknown-unknown`), x86_64 + aarch64 + wasm test matrix *(`.github/workflows/ci.yml`. Written, **not yet run on GitHub**. No wasm test runner yet, so the wasm entry is build-only.)*
-- [~] Verify the crate builds for `thumbv7em-none-eabihf` / riscv no_std target — **thumbv7em ✓** (with and without `simd`), **wasm32 ✓**. riscv not checked (target is installed; not run yet).
+- [x] Verify the crate builds for `thumbv7em-none-eabihf` / riscv no_std target — **thumbv7em ✓** (with and without `simd`), **wasm32 ✓**, **riscv32imac / riscv32imc ✓** (with and without `simd`, `cargo check`).
 
 ## Phase 1 — Surfaces & Basic Compositing (Weeks 1–2)
 ### Module A: `surface`
@@ -134,7 +136,7 @@ Source of truth: [spec.txt](spec.txt)
 - [ ] Publish v1.0.0 — **Decision (recommended): do not publish v1.0.0 yet.** The 10× milestone is unmet, and the cross-platform checks have not run. Ship as 0.x once CI is green. `publish = false` stays.
 
 ## Cross-Cutting
-- [~] Determinism review: no FMA contraction, fixed op ordering, no f64 pixel math, no `libm`-dependent functions without a deterministic implementation — **no f64 and no `unsafe` in use; Rust does not contract `a*b+c` by default.** `libm` is used for `powf`, `rintf`. Those are software implementations, but they have not been reviewed for determinism.
+- [~] Determinism review: no FMA contraction, fixed op ordering, no f64 pixel math, no `libm`-dependent functions without a deterministic implementation — **no f64, no `mul_add`, and no `powf` in `tpt-raster/src`; Rust does not contract `a*b+c` by default.** `libm` 0.2.16 (default `arch` feature) overrides only correctly-rounded operations with hardware instructions on x86_64 (`sqrt`, `fma`), aarch64 (`rint`, `sqrt`, `fma`) and wasm32 (`ceil`, `floor`, `rint`, `sqrt`, `trunc`). Those give identical results on every target. `expf`, `sinf`, `cosf`, `log2f` and `fmodf` are pure software on those targets. The exception is 32-bit x86 without SSE2 (x87 `expf` and friends), which is not a target we build for. **Still open:** the `libm` transcendentals are not yet checked bit-for-bit across ARM64 and WASM (needs the CI matrix).
 - [x] Minimize `unsafe`; document every block — *`tpt-raster` and the stubs use `#![forbid(unsafe_code)]`.*
 - [ ] No-allocation hot paths (scratch buffers reused) — **Decision (recommended): deferred.** Composite allocates nothing per pixel. Filters allocate one f32 buffer per pass, not per pixel. Scratch reuse is an API change with little measured benefit yet.
 - [x] Error type design (`no_std` compatible) — `SurfaceError` implements `Display` via `core::fmt`
